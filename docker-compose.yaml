@@ -1,0 +1,72 @@
+# =============================================================================
+# KubeSentient - Local Development Stack
+# =============================================================================
+# Prerequisites:
+#   1. Copy .env.example to .env and set OPENAI_API_KEY
+#   2. docker compose up --build
+#   3. Ingest runbooks: docker compose exec api python -m scripts.ingest_runbooks
+#   4. Test: curl http://localhost:8000/health
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Weaviate Vector Database
+  # text2vec-openai module enabled so near_text() search works
+  # ---------------------------------------------------------------------------
+  weaviate:
+    image: semitechnologies/weaviate:1.24.1
+    ports:
+      - "8080:8080"   # HTTP / REST + GraphQL
+      - "50051:50051" # gRPC
+    restart: unless-stopped
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      # Enable OpenAI text vectorizer so near_text() queries work
+      DEFAULT_VECTORIZER_MODULE: "text2vec-openai"
+      ENABLE_MODULES: "text2vec-openai"
+      CLUSTER_HOSTNAME: "node1"
+      # Pass OpenAI key so Weaviate can generate embeddings
+      OPENAI_APIKEY: "${OPENAI_API_KEY}"
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # KubeSentient FastAPI Application
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      weaviate:
+        condition: service_healthy
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      WEAVIATE_URL: "http://weaviate:8080"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4-turbo-preview}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      # Mount runbooks so they can be ingested without rebuilding the image
+      - ./runbooks:/app/runbooks:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  weaviate-data:
+    driver: local

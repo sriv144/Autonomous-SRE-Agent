@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubesentient.fullname" . }}-weaviate
+  labels:
+    {{- include "kubesentient.labels" . | nindent 4 }}
+    component: weaviate
+spec:
+  serviceName: "weaviate"
+  replicas: {{ .Values.weaviate.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kubesentient.selectorLabels" . | nindent 6 }}
+      component: weaviate
+  template:
+    metadata:
+      labels:
+        {{- include "kubesentient.selectorLabels" . | nindent 8 }}
+        component: weaviate
+    spec:
+      containers:
+        - name: weaviate
+          image: "{{ .Values.weaviate.image }}"
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 50051
+              name: grpc
+          env:
+            {{- range $key, $val := .Values.weaviate.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            # Inject OpenAI API key from Kubernetes secret for text2vec-openai module
+            - name: OPENAI_APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.weaviate.openaiSecretName }}
+                  key: {{ .Values.weaviate.openaiSecretKey }}
+          volumeMounts:
+            - name: weaviate-data
+              mountPath: /var/lib/weaviate
+          resources:
+            {{- toYaml .Values.weaviate.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: weaviate-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.weaviate.storage }}

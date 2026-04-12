@@ -1,0 +1,54 @@
+# Default values for kubesentient.
+
+image:
+  repository: kubesentient
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+weaviate:
+  image: semitechnologies/weaviate:1.24.1
+  replicas: 1
+  storage: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  env:
+    QUERY_DEFAULTS_LIMIT: 25
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+    PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+    # text2vec-openai required for near_text() semantic search in rag_tool.py
+    DEFAULT_VECTORIZER_MODULE: "text2vec-openai"
+    ENABLE_MODULES: "text2vec-openai"
+    CLUSTER_HOSTNAME: "node1"
+  # OpenAI API key must be injected as a secret in production.
+  # Create the secret first:
+  #   kubectl create secret generic kubesentient-secrets \
+  #     --from-literal=openai-api-key=sk-...
+  openaiSecretName: "kubesentient-secrets"
+  openaiSecretKey: "openai-api-key"
