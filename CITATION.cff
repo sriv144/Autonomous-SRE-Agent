@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use KubeSentient (Autonomous SRE Agent) in research or production, please cite it as below."
+title: "KubeSentient: Autonomous SRE Agent for Kubernetes Alert Triage"
+abstract: >-
+  An autonomous site reliability agent that ingests Prometheus AlertManager
+  webhooks, investigates the affected Kubernetes resources via read-only
+  tools, retrieves runbook context from a Weaviate RAG store, and produces
+  a structured remediation plan via a LangGraph workflow exposed through
+  a FastAPI service.
+authors:
+  - family-names: "Srivathsa"
+    given-names: ""
+    alias: "sriv144"
+repository-code: "https://github.com/sriv144/Autonomous-SRE-Agent"
+url: "https://github.com/sriv144/Autonomous-SRE-Agent"
+keywords:
+  - sre
+  - kubernetes
+  - langgraph
+  - rag
+  - weaviate
+  - prometheus
+  - alertmanager
+  - fastapi
+  - llm-agent
+license: MIT
+version: "0.1.0"
+date-released: "2026-04-26"
