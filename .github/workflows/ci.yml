@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (poetry, python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Poetry
+        run: |
+          pipx install poetry==1.8.3 || pip install --user poetry==1.8.3
+          poetry --version
+      - name: Configure Poetry
+        run: poetry config virtualenvs.create true --local
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: poetry-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock', '**/pyproject.toml') }}
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Run pytest
+        env:
+          OPENAI_API_KEY: dummy-key-for-mocked-tests
+        run: poetry run pytest tests/ -v
