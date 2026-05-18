@@ -2,25 +2,27 @@
 
 An autonomous site reliability agent for Kubernetes. It receives Prometheus AlertManager webhooks, investigates the affected cluster resources using read-only Kubernetes tools, queries a runbook knowledge base via RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
 
+The reasoning loop runs on **Anthropic Claude Sonnet 4.6** via `langchain-anthropic`. OpenAI is used **only** to embed runbook chunks for the Weaviate vector store — it never sees the agent's reasoning traffic.
+
 ## Architecture
 
 ```
-Prometheus → AlertManager → POST /api/v1/alerts
-                                    ↓
+Prometheus -> AlertManager -> POST /api/v1/alerts
+                                    |
                            FastAPI (port 8000)
-                                    ↓
-                         LangGraph Agent Workflow
-                        ┌───────────────────────┐
-                        │  triage → investigator │
-                        │      ↓ (tools)         │
-                        │  K8s: logs/events/pods │
-                        │  RAG: runbook search   │
-                        │      ↓                 │
-                        │  planner → approval    │
-                        └───────────────────────┘
-                                    ↓
+                                    |
+                         LangGraph Agent Workflow (Claude Sonnet 4.6)
+                        +-----------------------+
+                        |  triage -> investigator|
+                        |      | (tools)         |
+                        |  K8s: logs/events/pods |
+                        |  RAG: runbook search   |
+                        |      |                 |
+                        |  planner -> approval   |
+                        +-----------------------+
+                                    |
                        Remediation plan (logs/Slack)
-                                    ↑
+                                    ^
                           Weaviate (port 8080)
                           runbook knowledge base
 ```
@@ -32,7 +34,8 @@ Prometheus → AlertManager → POST /api/v1/alerts
 | Docker + Docker Compose | 24+ |
 | Python | 3.11+ (for local dev) |
 | Poetry | 1.7+ (for local dev) |
-| OpenAI API key | — |
+| Anthropic API key | for reasoning |
+| OpenAI API key | for runbook embeddings (Weaviate text2vec-openai) |
 | kubectl + kubeconfig | optional (for live K8s tools) |
 
 ## Quick Start (Docker — Recommended)
@@ -44,9 +47,10 @@ cd "Autonomous SRE Agent"
 cp .env.example .env
 ```
 
-Open `.env` and set your OpenAI API key:
+Open `.env` and set:
 ```
-OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+OPENAI_API_KEY=sk-your-openai-key-here
 ```
 
 ### 2. Build and start all services
@@ -71,7 +75,7 @@ Expected output:
 ```
 Weaviate is ready.
 Found 18 chunks to ingest...
-Ingestion complete — 18 chunk(s) written to Weaviate.
+Ingestion complete - 18 chunk(s) written to Weaviate.
 ```
 
 ### 4. Verify the stack
@@ -79,11 +83,11 @@ Ingestion complete — 18 chunk(s) written to Weaviate.
 ```bash
 # Health check
 curl http://localhost:8000/health
-# → {"status": "ok", "version": "0.1.0"}
+# -> {"status": "ok", "version": "0.1.0"}
 
 # Weaviate ready
 curl http://localhost:8080/v1/.well-known/ready
-# → {}
+# -> {}
 ```
 
 ### 5. Send a test alert
@@ -152,8 +156,9 @@ pip install poetry
 poetry install
 
 # Set env vars
-export OPENAI_API_KEY=sk-your-key-here
-export WEAVIATE_URL=http://localhost:8080   # must have Weaviate running separately
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+export OPENAI_API_KEY=sk-your-openai-key-here     # embeddings only
+export WEAVIATE_URL=http://localhost:8080         # must have Weaviate running separately
 
 # Run the API
 poetry run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -173,11 +178,12 @@ docker build -t your-registry/kubesentient:v1.0.0 .
 docker push your-registry/kubesentient:v1.0.0
 ```
 
-### 2. Create the OpenAI secret
+### 2. Create the secrets
 
 ```bash
 kubectl create secret generic kubesentient-secrets \
-  --from-literal=openai-api-key=sk-your-key-here \
+  --from-literal=anthropic-api-key=sk-ant-your-key-here \
+  --from-literal=openai-api-key=sk-your-openai-key-here \
   -n kubesentient
 ```
 
@@ -241,8 +247,8 @@ kubectl exec -n kubesentient deployment/kubesentient-api -- \
 
 After a fresh deploy, verify in order:
 
-- [ ] `curl localhost:8000/health` → `{"status":"ok","version":"0.1.0"}`
-- [ ] `curl localhost:8080/v1/.well-known/ready` → `{}`
+- [ ] `curl localhost:8000/health` -> `{"status":"ok","version":"0.1.0"}`
+- [ ] `curl localhost:8080/v1/.well-known/ready` -> `{}`
 - [ ] Runbook ingestion completes without errors
 - [ ] POST to `/api/v1/alerts` returns `202 Accepted`
 - [ ] API logs show all 4 agent nodes executing (triage, investigator, planner, approval)
@@ -255,9 +261,10 @@ After a fresh deploy, verify in order:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key for gpt-4-turbo-preview and Weaviate text2vec embeddings |
+| `ANTHROPIC_API_KEY` | **Yes** | — | Anthropic API key powering the reasoning loop (Claude Sonnet 4.6) |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Override the Claude model id |
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI key used solely for Weaviate `text2vec-openai` embeddings |
 | `WEAVIATE_URL` | No | `http://localhost:8080` | Weaviate HTTP URL |
-| `OPENAI_MODEL` | No | `gpt-4-turbo-preview` | OpenAI model override |
 | `LOG_LEVEL` | No | `INFO` | Logging verbosity |
 | `KUBECONFIG` | No | `~/.kube/config` | Path to kubeconfig for local K8s access |
 
@@ -269,7 +276,7 @@ After a fresh deploy, verify in order:
 .
 ├── src/
 │   ├── api/              # FastAPI: routes, models, app factory
-│   ├── agent_core/       # LangGraph workflow: graph, nodes, tools, state
+│   ├── agent_core/       # LangGraph workflow: graph, nodes (Claude), tools, state
 │   └── ingestion/        # Weaviate client + document chunker
 ├── runbooks/             # Markdown runbooks for RAG knowledge base
 ├── scripts/
