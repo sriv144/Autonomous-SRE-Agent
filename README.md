@@ -1,5 +1,9 @@
 # KubeSentient — Autonomous SRE Agent
 
+[![ci](https://github.com/sriv144/Autonomous-SRE-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/sriv144/Autonomous-SRE-Agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+
 An autonomous site reliability agent for Kubernetes. It receives Prometheus AlertManager webhooks, investigates the affected cluster resources using read-only Kubernetes tools, queries a runbook knowledge base via RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
 
 ## Architecture
@@ -10,14 +14,14 @@ Prometheus → AlertManager → POST /api/v1/alerts
                            FastAPI (port 8000)
                                     ↓
                          LangGraph Agent Workflow
-                        ┌───────────────────────┐
+                        ┌─────────────────────────┐
                         │  triage → investigator │
                         │      ↓ (tools)         │
                         │  K8s: logs/events/pods │
                         │  RAG: runbook search   │
                         │      ↓                 │
                         │  planner → approval    │
-                        └───────────────────────┘
+                        └─────────────────────────┘
                                     ↓
                        Remediation plan (logs/Slack)
                                     ↑
@@ -162,6 +166,18 @@ poetry run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 poetry run pytest tests/ -v
 ```
 
+Common dev tasks are also wrapped in a `Makefile` — run `make help` to list
+them (`make install`, `make test`, `make dev`, `make down`, `make ingest`,
+`make clean`).
+
+## Continuous Integration
+
+Every push and pull request to `main` runs the fully-mocked pytest suite via
+GitHub Actions on Python 3.11 and 3.12 (see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The job sets a dummy
+`OPENAI_API_KEY` so client constructors that read it at import time succeed —
+no external services are contacted, consistent with the mocked test suite.
+
 ---
 
 ## Kubernetes Deployment (Production)
@@ -278,6 +294,7 @@ After a fresh deploy, verify in order:
 ├── helm/                 # Kubernetes Helm chart
 ├── Dockerfile            # Multi-stage container build
 ├── docker-compose.yaml   # Local dev stack
+├── Makefile              # Common dev task shortcuts
 ├── pyproject.toml        # Python dependencies (Poetry)
 └── .env.example          # Environment variable template
 ```
