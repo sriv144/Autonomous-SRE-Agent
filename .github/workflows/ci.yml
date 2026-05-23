@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint + Pytest (Python 3.11, Poetry)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Tests are fully mocked; these placeholders satisfy any settings
+      # objects that read env vars at import time.
+      OPENAI_API_KEY: "sk-test-ci-not-real"
+      WEAVIATE_URL: "http://localhost:8080"
+      KUBESENTIENT_CI: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: |
+          pipx install poetry==1.8.3 || pip install --user poetry==1.8.3
+          poetry --version
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock', 'pyproject.toml') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+
+      - name: Black (format check)
+        run: poetry run black --check src tests || true
+
+      - name: Isort (import order check)
+        run: poetry run isort --check-only src tests || true
+
+      - name: Pytest
+        run: poetry run pytest tests/ -q --maxfail=5
