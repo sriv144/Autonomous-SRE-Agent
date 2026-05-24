@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    name: poetry install + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+
+      - name: Configure Poetry cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock', 'pyproject.toml') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
+
+      - name: Install project (no root)
+        run: poetry install --no-interaction --no-root
+
+      - name: Install project (root)
+        run: poetry install --no-interaction
+
+      - name: Run pytest (fully mocked per README)
+        env:
+          OPENAI_API_KEY: "sk-test-not-real"
+          WEAVIATE_URL: "http://localhost:8080"
+        run: poetry run pytest tests/ -v
