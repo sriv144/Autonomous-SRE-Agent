@@ -1,5 +1,6 @@
 import logging
 import json
+import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -11,9 +12,40 @@ from src.agent_core.rag_tool import search_runbooks_tool
 
 logger = logging.getLogger("kubesentient.agent")
 
+# Default models per provider. Anthropic default is Sonnet 4.6 — strong
+# reasoning, cost-effective for an SRE remediation loop. Override per
+# deployment with ANTHROPIC_MODEL / OPENAI_MODEL.
+_DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_DEFAULT_OPENAI_MODEL = "gpt-4-turbo-preview"
+
+
+def _build_llm():
+    """Build the LangChain chat model based on LLM_PROVIDER.
+
+    LLM_PROVIDER=openai     -> ChatOpenAI (default, preserves prior behavior)
+    LLM_PROVIDER=anthropic  -> ChatAnthropic (Claude Sonnet 4.6 by default)
+    """
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+
+    if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError as exc:  # pragma: no cover - import-time guard
+            raise ImportError(
+                "LLM_PROVIDER=anthropic requires the langchain-anthropic "
+                "package. Install it with: pip install langchain-anthropic"
+            ) from exc
+        model = os.getenv("ANTHROPIC_MODEL", _DEFAULT_ANTHROPIC_MODEL)
+        logger.info("Initializing Anthropic LLM provider model=%s", model)
+        return ChatAnthropic(model=model, temperature=0)
+
+    model = os.getenv("OPENAI_MODEL", _DEFAULT_OPENAI_MODEL)
+    logger.info("Initializing OpenAI LLM provider model=%s", model)
+    return ChatOpenAI(model=model, temperature=0)
+
+
 # Initialize LLM
-# In production, we'd use a robust model like gpt-4-turbo for complex reasoning
-llm = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0)
+llm = _build_llm()
 
 # Bind tools to the LLM
 tools = [get_pod_logs_tool, list_events_tool, describe_pod_tool, search_runbooks_tool]
