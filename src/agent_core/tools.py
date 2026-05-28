@@ -1,13 +1,25 @@
+import os
 from typing import Annotated, List, Dict, Union
 from src.agent_core.k8s_client import K8sService
 
-# Global instance for tool use (can be injected dependency in advanced setups)
-# Defaulting to local mode false, expecting environment var or config in real app
-# For now, we assume this is running where config is available.
+
+def _resolve_local_mode() -> bool:
+    """Whether to load a local kubeconfig (dev) instead of in-cluster config (prod).
+
+    Controlled by the ``K8S_LOCAL_MODE`` environment variable so the same image
+    can target a developer's kubeconfig or an in-cluster ServiceAccount without
+    editing source. Defaults to in-cluster (False) to preserve prior behavior.
+    """
+    return os.getenv("K8S_LOCAL_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Global instance for tool use (can be injected as a dependency in advanced setups).
+# Initialization may fail outside a cluster (or without a kubeconfig); in that case
+# the tools below degrade gracefully to an error string instead of crashing import.
 try:
-    k8s = K8sService(local_mode=False) # Will fail gracefully in tests mock
-except:
-    k8s = None # Placeholder if initialization fails outside of cluster
+    k8s = K8sService(local_mode=_resolve_local_mode())  # Will fail gracefully in tests/mocks
+except Exception:
+    k8s = None  # Placeholder if initialization fails outside of cluster
 
 def get_pod_logs_tool(
     namespace: Annotated[str, "The Kubernetes namespace of the pod"],
