@@ -1,19 +1,18 @@
 import logging
 import json
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from langchain_core.tools import tool
+from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.prebuilt import ToolNode
 
 from src.agent_core.state import AgentState
 from src.agent_core.tools import get_pod_logs_tool, list_events_tool, describe_pod_tool
 from src.agent_core.rag_tool import search_runbooks_tool
+from src.agent_core.llm_provider import build_llm
 
 logger = logging.getLogger("kubesentient.agent")
 
-# Initialize LLM
-# In production, we'd use a robust model like gpt-4-turbo for complex reasoning
-llm = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0)
+# Initialize LLM via provider factory.
+# Default is OpenAI gpt-4-turbo-preview. Set LLM_PROVIDER=anthropic to use Claude.
+llm = build_llm()
 
 # Bind tools to the LLM
 tools = [get_pod_logs_tool, list_events_tool, describe_pod_tool, search_runbooks_tool]
