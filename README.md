@@ -1,5 +1,10 @@
 # KubeSentient — Autonomous SRE Agent
 
+[![CI](https://github.com/sriv144/Autonomous-SRE-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/sriv144/Autonomous-SRE-Agent/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/langgraph-0.2-blueviolet)](https://langchain-ai.github.io/langgraph/)
+[![LLM: OpenAI · Claude](https://img.shields.io/badge/LLM-OpenAI%20%C2%B7%20Claude-orange)](#llm-provider-multi-backend)
+
 An autonomous site reliability agent for Kubernetes. It receives Prometheus AlertManager webhooks, investigates the affected cluster resources using read-only Kubernetes tools, queries a runbook knowledge base via RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
 
 ## Architecture
@@ -25,6 +30,30 @@ Prometheus → AlertManager → POST /api/v1/alerts
                           runbook knowledge base
 ```
 
+## LLM provider (multi-backend)
+
+KubeSentient supports two chat backends and selects between them at runtime via the `LLM_PROVIDER` environment variable.
+
+| Provider | `LLM_PROVIDER` | Default model | Required key |
+|----------|----------------|---------------|--------------|
+| OpenAI (default) | `openai` | `gpt-4-turbo-preview` | `OPENAI_API_KEY` |
+| Anthropic Claude | `anthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
+
+The selection lives in `src/agent_core/llm_provider.py` — a tiny factory that returns `ChatOpenAI` or `ChatAnthropic`. The LangGraph wiring is unchanged, so switching providers is a single env var.
+
+```bash
+# Use Claude
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_MODEL=claude-sonnet-4-6   # optional override
+
+# Or stay on OpenAI (the default)
+export LLM_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+```
+
+Note: Weaviate's `text2vec-openai` module still needs `OPENAI_API_KEY` for runbook embeddings, even when the agent itself runs on Claude.
+
 ## Prerequisites
 
 | Tool | Version |
@@ -32,7 +61,7 @@ Prometheus → AlertManager → POST /api/v1/alerts
 | Docker + Docker Compose | 24+ |
 | Python | 3.11+ (for local dev) |
 | Poetry | 1.7+ (for local dev) |
-| OpenAI API key | — |
+| OpenAI **or** Anthropic API key | — |
 | kubectl + kubeconfig | optional (for live K8s tools) |
 
 ## Quick Start (Docker — Recommended)
@@ -44,8 +73,9 @@ cd "Autonomous SRE Agent"
 cp .env.example .env
 ```
 
-Open `.env` and set your OpenAI API key:
+Open `.env` and set the keys for your chosen provider:
 ```
+LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-your-key-here
 ```
 
@@ -152,6 +182,7 @@ pip install poetry
 poetry install
 
 # Set env vars
+export LLM_PROVIDER=openai
 export OPENAI_API_KEY=sk-your-key-here
 export WEAVIATE_URL=http://localhost:8080   # must have Weaviate running separately
 
@@ -173,11 +204,20 @@ docker build -t your-registry/kubesentient:v1.0.0 .
 docker push your-registry/kubesentient:v1.0.0
 ```
 
-### 2. Create the OpenAI secret
+### 2. Create the LLM secret
 
+For OpenAI:
 ```bash
 kubectl create secret generic kubesentient-secrets \
   --from-literal=openai-api-key=sk-your-key-here \
+  -n kubesentient
+```
+
+For Anthropic:
+```bash
+kubectl create secret generic kubesentient-secrets \
+  --from-literal=anthropic-api-key=sk-ant-your-key-here \
+  --from-literal=openai-api-key=sk-your-openai-key-for-weaviate \
   -n kubesentient
 ```
 
@@ -227,7 +267,7 @@ docker compose exec api python -m scripts.ingest_runbooks
 
 # Kubernetes
 kubectl exec -n kubesentient deployment/kubesentient-api -- \
-  python -m scripts.ingest_runbooks --runbooks-dir /app/runbooks
+  python -m scripts.ingest_runbooks
 ```
 
 **Real runbook sources:**
@@ -255,9 +295,12 @@ After a fresh deploy, verify in order:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key for gpt-4-turbo-preview and Weaviate text2vec embeddings |
+| `LLM_PROVIDER` | No | `openai` | Chat backend: `openai` or `anthropic` |
+| `OPENAI_API_KEY` | Yes (openai) | — | OpenAI key. Also required for Weaviate `text2vec-openai` embeddings even when using Claude. |
+| `OPENAI_MODEL` | No | `gpt-4-turbo-preview` | OpenAI chat model override |
+| `ANTHROPIC_API_KEY` | Yes (anthropic) | — | Anthropic key when `LLM_PROVIDER=anthropic` |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Anthropic chat model override |
 | `WEAVIATE_URL` | No | `http://localhost:8080` | Weaviate HTTP URL |
-| `OPENAI_MODEL` | No | `gpt-4-turbo-preview` | OpenAI model override |
 | `LOG_LEVEL` | No | `INFO` | Logging verbosity |
 | `KUBECONFIG` | No | `~/.kube/config` | Path to kubeconfig for local K8s access |
 
@@ -269,7 +312,7 @@ After a fresh deploy, verify in order:
 .
 ├── src/
 │   ├── api/              # FastAPI: routes, models, app factory
-│   ├── agent_core/       # LangGraph workflow: graph, nodes, tools, state
+│   ├── agent_core/       # LangGraph workflow: graph, nodes, tools, state, llm_provider
 │   └── ingestion/        # Weaviate client + document chunker
 ├── runbooks/             # Markdown runbooks for RAG knowledge base
 ├── scripts/
