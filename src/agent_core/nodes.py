@@ -1,105 +1,94 @@
-import logging
 import json
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from langchain_core.tools import tool
+import logging
+import os
+
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import ToolNode
 
-from src.agent_core.state import AgentState
-from src.agent_core.tools import get_pod_logs_tool, list_events_tool, describe_pod_tool
 from src.agent_core.rag_tool import search_runbooks_tool
+from src.agent_core.state import AgentState
+from src.agent_core.tools import describe_pod_tool, get_pod_logs_tool, list_events_tool
 
 logger = logging.getLogger("kubesentient.agent")
 
-# Initialize LLM
-# In production, we'd use a robust model like gpt-4-turbo for complex reasoning
-llm = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0)
+# Anthropic Claude powers reasoning. Sonnet is the default; override with
+# ANTHROPIC_MODEL (e.g. claude-opus-4-8) for harder incidents.
+_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+llm = ChatAnthropic(model=_MODEL, temperature=0, max_tokens=4096)
 
-# Bind tools to the LLM
 tools = [get_pod_logs_tool, list_events_tool, describe_pod_tool, search_runbooks_tool]
 llm_with_tools = llm.bind_tools(tools)
 
+
 def initial_triage(state: AgentState):
-    """
-    Analyzes the alert payload and sets the initial context.
-    """
+    """Analyze the alert payload and set the initial context."""
     logger.info("Node: initial_triage")
     alert = state.get("alert_payload", {})
-    
-    # Extract key info to prime the LLM
+
     alerts_summary = json.dumps(alert.get("alerts", []), indent=2)
     group_key = alert.get("groupKey", "Unknown")
-    
-    msg = f"""
-    Received Alert Group: {group_key}
-    Alerts:
-    {alerts_summary}
-    
-    Please investigate the affected resources using your tools. 
-    Check logs, events, and describe the pods. 
-    Also search for runbooks if the issue isn't obvious.
-    """
-    
+
+    msg = (
+        f"Received Alert Group: {group_key}\n"
+        f"Alerts:\n{alerts_summary}\n\n"
+        "Please investigate the affected resources using your tools. "
+        "Check logs, events, and describe the pods. "
+        "Also search for runbooks if the issue isn't obvious."
+    )
+
     return {
-        "messages": [SystemMessage(content="You are KubeSentient, an autonomous SRE."), HumanMessage(content=msg)],
+        "messages": [
+            SystemMessage(content="You are KubeSentient, an autonomous SRE."),
+            HumanMessage(content=msg),
+        ],
         "context": {"group_key": group_key},
-        "investigation_complete": False
+        "investigation_complete": False,
     }
 
+
 def investigator(state: AgentState):
-    """
-    The core loop where the agent calls tools to gather info.
-    """
+    """Core loop where the agent calls tools to gather info."""
     logger.info("Node: investigator")
     messages = state["messages"]
-    
-    # Invoke LLM
+
     response = llm_with_tools.invoke(messages)
-    
-    # If the LLM doesn't want to call any more tools, we assume investigation is done
+
     if not response.tool_calls:
         return {
             "messages": [response],
-            "investigation_complete": True
+            "investigation_complete": True,
         }
-    
+
     return {"messages": [response]}
 
-# Prebuilt tool execution node from LangGraph
+
 tool_node = ToolNode(tools)
 
+
 def planner(state: AgentState):
-    """
-    Synthesizes findings into a remediation plan.
-    """
+    """Synthesize findings into a remediation plan."""
     logger.info("Node: planner")
     messages = state["messages"]
-    
-    prompt = """
-    Based on the investigation above, please formulate a detailed remediation plan.
-    
-    1. Summarize the Root Cause.
-    2. Propose specific kubectl commands or actions to fix it.
-    3. State if human intervention is critical.
-    
-    Format the output as a Markdown report.
-    """
-    
-    # We use a standard generation call here, not tool binding
+
+    prompt = (
+        "Based on the investigation above, please formulate a detailed remediation plan.\n\n"
+        "1. Summarize the Root Cause.\n"
+        "2. Propose specific kubectl commands or actions to fix it.\n"
+        "3. State if human intervention is critical.\n\n"
+        "Format the output as a Markdown report."
+    )
+
     response = llm.invoke(messages + [HumanMessage(content=prompt)])
-    
+
     return {
         "messages": [response],
         "plan": response.content,
-        "requires_approval": True
+        "requires_approval": True,
     }
 
+
 def human_approval(state: AgentState):
-    """
-    A dummy node that acts as a breakpoint in the graph.
-    In a real app, this would suspend execution until an API call resumes it.
-    """
+    """Dummy node acting as a breakpoint in the graph."""
     logger.info("Node: human_approval - Waiting for user signal (Mocked)")
-    # For now, we just pass through or stop.
-    # In LangGraph, we use 'interrupt_before' on this node.
     return {}

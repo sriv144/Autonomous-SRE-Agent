@@ -1,6 +1,9 @@
 # KubeSentient — Autonomous SRE Agent
 
-An autonomous site reliability agent for Kubernetes. It receives Prometheus AlertManager webhooks, investigates the affected cluster resources using read-only Kubernetes tools, queries a runbook knowledge base via RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
+An autonomous site reliability agent for Kubernetes, powered by **Anthropic Claude**.
+It receives Prometheus AlertManager webhooks, investigates the affected cluster
+resources using read-only Kubernetes tools, queries a runbook knowledge base via
+RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
 
 ## Architecture
 
@@ -25,6 +28,10 @@ Prometheus → AlertManager → POST /api/v1/alerts
                           runbook knowledge base
 ```
 
+**Reasoning model:** `claude-sonnet-4-6` (default). Set `ANTHROPIC_MODEL` to
+`claude-opus-4-8` for harder incidents or `claude-haiku-4-5` for low-latency
+triage.
+
 ## Prerequisites
 
 | Tool | Version |
@@ -32,7 +39,8 @@ Prometheus → AlertManager → POST /api/v1/alerts
 | Docker + Docker Compose | 24+ |
 | Python | 3.11+ (for local dev) |
 | Poetry | 1.7+ (for local dev) |
-| OpenAI API key | — |
+| Anthropic API key | — |
+| OpenAI API key | — (used only by Weaviate for embeddings) |
 | kubectl + kubeconfig | optional (for live K8s tools) |
 
 ## Quick Start (Docker — Recommended)
@@ -40,13 +48,14 @@ Prometheus → AlertManager → POST /api/v1/alerts
 ### 1. Clone and configure
 
 ```bash
-cd "Autonomous SRE Agent"
+cd Autonomous-SRE-Agent
 cp .env.example .env
 ```
 
-Open `.env` and set your OpenAI API key:
+Open `.env` and set your keys:
 ```
-OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+OPENAI_API_KEY=sk-your-key-here    # Weaviate embeddings only
 ```
 
 ### 2. Build and start all services
@@ -79,7 +88,7 @@ Ingestion complete — 18 chunk(s) written to Weaviate.
 ```bash
 # Health check
 curl http://localhost:8000/health
-# → {"status": "ok", "version": "0.1.0"}
+# → {"status": "ok", "version": "0.2.0"}
 
 # Weaviate ready
 curl http://localhost:8080/v1/.well-known/ready
@@ -129,18 +138,14 @@ Expected response: `{"status": "accepted", "message": "Alerts queued for process
 docker compose logs -f api
 ```
 
-You'll see the LangGraph workflow execute:
-```
-[INFO] kubesentient.routes   - Received webhook from kubesentient with 1 alerts
-[INFO] kubesentient.agent    - Node: initial_triage
-[INFO] kubesentient.agent    - Node: investigator
-[INFO] kubesentient.agent    - Node: planner
-[INFO] kubesentient.agent    - Node: human_approval - Waiting for user signal (Mocked)
-[INFO] kubesentient.routes   - Agent finished. Remediation Plan:
-                               ## Root Cause Analysis ...
-```
+You'll see the LangGraph workflow execute (triage → investigator → planner
+→ approval) with Claude producing the remediation plan.
 
-> **Note:** K8s tools (logs, events, pod describe) will return "K8s client not initialized" in local dev because there's no real cluster. The agent will still invoke the RAG runbook search and produce a plan based on the alert context. For full K8s tool functionality, run inside a cluster or set `KUBECONFIG` and change `local_mode=True` in `src/agent_core/tools.py:8`.
+> **Note:** K8s tools (logs, events, pod describe) will return "K8s client not
+> initialized" in local dev because there's no real cluster. The agent will
+> still invoke the RAG runbook search and produce a plan based on the alert
+> context. For full K8s tool functionality, run inside a cluster or set
+> `KUBECONFIG` and change `local_mode=True` in `src/agent_core/tools.py:8`.
 
 ---
 
@@ -152,7 +157,8 @@ pip install poetry
 poetry install
 
 # Set env vars
-export OPENAI_API_KEY=sk-your-key-here
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+export OPENAI_API_KEY=sk-your-key-here   # Weaviate embeddings only
 export WEAVIATE_URL=http://localhost:8080   # must have Weaviate running separately
 
 # Run the API
@@ -169,14 +175,15 @@ poetry run pytest tests/ -v
 ### 1. Build and push the image
 
 ```bash
-docker build -t your-registry/kubesentient:v1.0.0 .
-docker push your-registry/kubesentient:v1.0.0
+docker build -t your-registry/kubesentient:v0.2.0 .
+docker push your-registry/kubesentient:v0.2.0
 ```
 
-### 2. Create the OpenAI secret
+### 2. Create the API key secrets
 
 ```bash
 kubectl create secret generic kubesentient-secrets \
+  --from-literal=anthropic-api-key=sk-ant-your-key-here \
   --from-literal=openai-api-key=sk-your-key-here \
   -n kubesentient
 ```
@@ -188,7 +195,7 @@ helm install kubesentient ./helm \
   --namespace kubesentient \
   --create-namespace \
   --set image.repository=your-registry/kubesentient \
-  --set image.tag=v1.0.0
+  --set image.tag=v0.2.0
 ```
 
 ### 4. Ingest runbooks into the cluster's Weaviate
@@ -241,7 +248,7 @@ kubectl exec -n kubesentient deployment/kubesentient-api -- \
 
 After a fresh deploy, verify in order:
 
-- [ ] `curl localhost:8000/health` → `{"status":"ok","version":"0.1.0"}`
+- [ ] `curl localhost:8000/health` → `{"status":"ok","version":"0.2.0"}`
 - [ ] `curl localhost:8080/v1/.well-known/ready` → `{}`
 - [ ] Runbook ingestion completes without errors
 - [ ] POST to `/api/v1/alerts` returns `202 Accepted`
@@ -255,9 +262,10 @@ After a fresh deploy, verify in order:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key for gpt-4-turbo-preview and Weaviate text2vec embeddings |
+| `ANTHROPIC_API_KEY` | **Yes** | — | Anthropic API key for Claude (agent reasoning) |
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI key used **only** by Weaviate text2vec for embeddings |
 | `WEAVIATE_URL` | No | `http://localhost:8080` | Weaviate HTTP URL |
-| `OPENAI_MODEL` | No | `gpt-4-turbo-preview` | OpenAI model override |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Claude model override (e.g. `claude-opus-4-8`, `claude-haiku-4-5`) |
 | `LOG_LEVEL` | No | `INFO` | Logging verbosity |
 | `KUBECONFIG` | No | `~/.kube/config` | Path to kubeconfig for local K8s access |
 
@@ -270,6 +278,7 @@ After a fresh deploy, verify in order:
 ├── src/
 │   ├── api/              # FastAPI: routes, models, app factory
 │   ├── agent_core/       # LangGraph workflow: graph, nodes, tools, state
+│   │                     #   nodes.py instantiates ChatAnthropic (Claude)
 │   └── ingestion/        # Weaviate client + document chunker
 ├── runbooks/             # Markdown runbooks for RAG knowledge base
 ├── scripts/
