@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests + Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: dummy-for-import
+      WEAVIATE_URL: http://localhost:8080
+      OPENAI_MODEL: gpt-4-turbo-preview
+      LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: |
+          pipx install poetry==1.8.3
+          poetry --version
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: poetry-${{ runner.os }}-py3.11-${{ hashFiles('**/poetry.lock', '**/pyproject.toml') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-py3.11-
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Lint (black + isort, check-only, non-blocking)
+        continue-on-error: true
+        run: |
+          poetry run black --check src tests
+          poetry run isort --check-only src tests
+
+      - name: Run pytest
+        run: poetry run pytest tests/ -v --tb=short
