@@ -32,8 +32,8 @@ jobs:
       - name: Configure Poetry
         run: poetry config virtualenvs.create false
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+      - name: Install dependencies (incl. root package so `src` is importable)
+        run: poetry install --no-interaction
 
       - name: Run pytest
         env:
