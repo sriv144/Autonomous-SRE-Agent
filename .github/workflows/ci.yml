@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  POETRY_VERSION: '1.8.3'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff (report-only on first rollout)
+        run: ruff check src tests --output-format=github
+        continue-on-error: true
+
+  test:
+    name: Test (pytest, mocked)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Configure Poetry
+        run: poetry config virtualenvs.in-project true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: poetry-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock', 'pyproject.toml') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+
+      - name: Install project (with dev extras)
+        run: poetry install --no-interaction --no-ansi
+
+        # README § Local Development guarantees the test suite is fully
+        # mocked, so no Weaviate / OpenAI / kubeconfig is needed here.
+      - name: Run pytest
+        env:
+          OPENAI_API_KEY: 'sk-mock-not-used'
+          WEAVIATE_URL: 'http://mock.invalid:8080'
+          LOG_LEVEL: 'WARNING'
+        run: poetry run pytest tests/ -q --maxfail=5
