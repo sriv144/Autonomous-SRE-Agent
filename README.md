@@ -1,5 +1,14 @@
 # KubeSentient — Autonomous SRE Agent
 
+![CI](https://github.com/sriv144/Autonomous-SRE-Agent/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/k8s-Helm%20chart-326ce5?logo=kubernetes&logoColor=white)
+![FastAPI](https://img.shields.io/badge/api-FastAPI-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/agent-LangGraph-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+> **Autonomous Kubernetes SRE agent — AlertManager webhooks in, RAG-grounded remediation plans out.**
+
 An autonomous site reliability agent for Kubernetes. It receives Prometheus AlertManager webhooks, investigates the affected cluster resources using read-only Kubernetes tools, queries a runbook knowledge base via RAG (Weaviate + OpenAI embeddings), and produces a structured remediation plan.
 
 ## Architecture
