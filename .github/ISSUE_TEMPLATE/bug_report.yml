@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a defect in KubeSentient (AlertManager webhook, LangGraph agent, RAG, K8s tools, Helm deploy)
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. **Redact namespaces, pod names, cluster identifiers, and any secrets from logs before posting.**
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How is KubeSentient deployed?
+      options:
+        - Docker Compose (local dev)
+        - Local Python (poetry run uvicorn)
+        - Kubernetes via Helm chart
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface is affected?
+      options:
+        - AlertManager webhook (`/api/v1/alerts`)
+        - LangGraph triage node
+        - LangGraph investigator node
+        - LangGraph planner node
+        - Human-approval gate
+        - K8s tools (logs / events / pod describe)
+        - Weaviate RAG runbook search
+        - Runbook ingestion script
+        - Helm chart
+        - Dockerfile / docker-compose
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. `docker compose up --build`
+        2. `curl -X POST http://localhost:8000/api/v1/alerts -d @alert.json`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: api-version
+    attributes:
+      label: API version (from `/health`)
+      placeholder: "0.1.0"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output (redacted)
+      render: shell

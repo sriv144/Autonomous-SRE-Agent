@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a new capability for KubeSentient
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface would this extend?
+      options:
+        - Webhook ingestion
+        - LangGraph agent (new node or rerouting)
+        - K8s tool surface (new read-only tool)
+        - K8s tool surface (write / remediation tool)
+        - RAG / runbook quality
+        - LLM provider / model selection
+        - Human-approval channel (Slack, MS Teams, PagerDuty)
+        - Helm chart / deployment
+        - Observability (metrics / tracing)
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
